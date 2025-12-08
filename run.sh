@@ -15,6 +15,11 @@ set -euo pipefail
 # Always work from the submit directory (where you ran sbatch)
 cd "${SLURM_SUBMIT_DIR:-$PWD}" || exit 1
 
+# Unbuffered logs and local log directory for Slurm outputs
+export PYTHONUNBUFFERED=1
+LOG_DIR="${SLURM_SUBMIT_DIR:-$PWD}/slurm_logs"
+mkdir -p "$LOG_DIR"
+
 # If you know your python, pass it: PYTHON_BIN=/path/to/python sbatch run.sh
 PYTHON_CANDIDATES=(
   "${PYTHON_BIN:-}"
@@ -92,5 +97,5 @@ fi
 echo "[INFO] Using python at $PYTHON_BIN"
 
 # Run BCResNet training with GPU 0, tau=8 (BCResNet-8), and Google Speech Commands v2
-"$PYTHON_BIN" main.py --tau 8 --gpu 0 --ver 2 --download
+"$PYTHON_BIN" -u main.py --tau 8 --gpu 0 --ver 2 --download 2>&1 | tee -a "$LOG_DIR/job-${SLURM_JOB_ID:-local}.log"
 
