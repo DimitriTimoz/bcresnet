@@ -16,7 +16,11 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}" || exit 1
 
 # If you know your python, pass it: PYTHON_BIN=/path/to/python sbatch run.sh
-if [ -z "${PYTHON_BIN:-}" ]; then
+PYTHON_BIN=${PYTHON_BIN:-"$HOME/miniconda3/envs/h2ogpt/bin/python"}
+
+if [ -x "$PYTHON_BIN" ]; then
+  echo "[INFO] Using python at $PYTHON_BIN"
+else
   # Load a conda module available on Juliet (check module avail miniconda3)
   if command -v module >/dev/null 2>&1; then
     module load miniconda3/24.3.0 2>/dev/null || module load miniconda3 2>/dev/null || true
@@ -32,7 +36,7 @@ if [ -z "${PYTHON_BIN:-}" ]; then
   elif command -v conda >/dev/null 2>&1; then
     eval "$(conda shell.bash hook)"
   else
-    echo "[ERROR] conda not found. Set PYTHON_BIN to your env (ex: ~/miniconda3/envs/bcresnet/bin/python) or load the conda module." >&2
+    echo "[ERROR] conda not found. Set PYTHON_BIN to your env (ex: ~/miniconda3/envs/h2ogpt/bin/python) or load the conda module." >&2
     exit 1
   fi
 
@@ -43,8 +47,6 @@ if [ -z "${PYTHON_BIN:-}" ]; then
 
   PYTHON_BIN="$(command -v python)"
   echo "[INFO] Using python from conda env: $PYTHON_BIN"
-else
-  echo "[INFO] Using python at $PYTHON_BIN"
 fi
 
 # Run BCResNet training with GPU 0, tau=8 (BCResNet-8), and Google Speech Commands v2
