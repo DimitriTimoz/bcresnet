@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=10:00:00
 #SBATCH --mem=256G
-#SBATCH --account=m2xxxx
+#SBATCH --account=m25206
 
 # BCResNet training script for Juliet cluster
 # Based on README: python main.py --tau 8 --gpu 0 --ver 2 --download
