@@ -22,7 +22,6 @@ PYTHON_CANDIDATES=(
   "$HOME/miniconda3/envs/bcresnet/bin/python"
   "$HOME/anaconda3/envs/h2ogpt/bin/python"
   "$HOME/anaconda3/envs/bcresnet/bin/python"
-  "/usr/bin/python3"
 )
 
 # Ensure module command is available, then try loading miniconda module
@@ -68,6 +67,25 @@ if [ -z "$PYTHON_BIN" ]; then
   }
 
   PYTHON_BIN="$(command -v python)"
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+  # Last-resort: build a venv with system python if available
+  if command -v module >/dev/null 2>&1; then
+    module load python/3.11.9 2>/dev/null || module load python/3.10.10 2>/dev/null || true
+  fi
+  BASE_PY="$(command -v python3 || true)"
+  if [ -z "$BASE_PY" ]; then
+    echo "[ERROR] Aucun python3 trouvé. Fixez PYTHON_BIN." >&2
+    exit 1
+  fi
+  VENV_DIR="${SLURM_TMPDIR:-$HOME/.cache}/bcresnet_venv"
+  "${BASE_PY}" -m venv "$VENV_DIR"
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+  pip install --upgrade pip >/dev/null
+  pip install torch torchvision torchaudio tqdm requests >/dev/null
+  PYTHON_BIN="$VENV_DIR/bin/python"
 fi
 
 echo "[INFO] Using python at $PYTHON_BIN"
