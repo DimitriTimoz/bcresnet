@@ -20,6 +20,21 @@ export PYTHONUNBUFFERED=1
 LOG_DIR="${SLURM_SUBMIT_DIR:-$PWD}/slurm_logs"
 mkdir -p "$LOG_DIR"
 
+# Setup workspace paths according to Juliet best practices
+# Data -> /scratch_l (fast local temporary storage per node)
+# Logs -> submit directory (persistent)
+# Venv -> /scratch_l (fast and cleaned between jobs)
+SCRATCH_DIR="/scratch_l/${USER}/bcresnet_${SLURM_JOB_ID:-local}"
+mkdir -p "$SCRATCH_DIR"
+export DATA_DIR="$SCRATCH_DIR/data"
+mkdir -p "$DATA_DIR"
+
+# Copy existing data to scratch if available (faster training)
+if [ -d "${SLURM_SUBMIT_DIR}/data" ]; then
+  echo "[INFO] Copying existing data to scratch..."
+  cp -r "${SLURM_SUBMIT_DIR}/data" "$SCRATCH_DIR/" 2>/dev/null || true
+fi
+
 # If you know your python, pass it: PYTHON_BIN=/path/to/python sbatch run.sh
 PYTHON_CANDIDATES=(
   "${PYTHON_BIN:-}"
@@ -85,7 +100,9 @@ if [ -z "$PYTHON_BIN" ]; then
     echo "[DEBUG] Tried candidates: ${PYTHON_CANDIDATES[*]}" >&2
     exit 1
   fi
-  VENV_DIR="${SLURM_TMPDIR:-$HOME/.cache}/bcresnet_venv"
+  # Use scratch for venv (faster and auto-cleaned)
+  VENV_DIR="$SCRATCH_DIR/bcresnet_venv"
+  echo "[INFO] Creating temporary venv in $VENV_DIR..."
   "${BASE_PY}" -m venv "$VENV_DIR"
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
@@ -95,6 +112,9 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 echo "[INFO] Using python at $PYTHON_BIN"
+
+# Work in scratch directory for fast I/O
+cd "$SCRATCH_DIR" || exit 1
 
 # Clean corrupted or incomplete dataset directories
 if [ -d "./data/speech_commands_v0.02" ]; then
@@ -115,4 +135,17 @@ fi
 
 # Run BCResNet training with GPU 0, tau=8 (BCResNet-8), and Google Speech Commands v2
 "$PYTHON_BIN" -u main.py --tau 8 --gpu 0 --ver 2 --download 2>&1 | tee -a "$LOG_DIR/job-${SLURM_JOB_ID:-local}.log"
+
+# Copy trained models back to submit directory
+echo "[INFO] Copying results back to ${SLURM_SUBMIT_DIR}..."
+if [ -d "./data" ]; then
+  rsync -a --exclude='*.tar.gz' ./data/ "${SLURM_SUBMIT_DIR}/data/" 2>/dev/null || true
+fi
+if [ -n "$(find . -maxdepth 1 -name '*.pth' -o -name '*.pt' 2>/dev/null)" ]; then
+  cp -v ./*.pth ./*.pt "${SLURM_SUBMIT_DIR}/" 2>/dev/null || true
+fi
+
+# Cleanup scratch
+echo "[INFO] Cleaning up scratch directory..."
+rm -rf "$SCRATCH_DIR"
 
