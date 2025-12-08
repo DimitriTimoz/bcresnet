@@ -90,7 +90,7 @@ if [ -z "$PYTHON_BIN" ]; then
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
   pip install --upgrade pip >/dev/null
-  pip install torch torchvision torchaudio tqdm requests >/dev/null
+  pip install torch torchvision torchaudio tqdm requests soundfile >/dev/null
   PYTHON_BIN="$VENV_DIR/bin/python"
 fi
 

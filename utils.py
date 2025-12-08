@@ -244,7 +244,7 @@ def make_12class_dataset(base, target):
         if class_name in class10:
             target_dir = os.path.join(target, class_name)
             shutil.copytree(clsdir, target_dir)
-            print(f"Copied {clsdir} to {target_dir}")
+            # print(f"Copied {clsdir} to {target_dir}")
         else:
             for file_path in glob(os.path.join(clsdir, "*")):
                 filename = os.path.basename(file_path)
@@ -252,7 +252,7 @@ def make_12class_dataset(base, target):
                 os.makedirs(target_dir, exist_ok=True)
                 target_file = os.path.join(target_dir, class_name + "_" + filename)
                 shutil.copy(file_path, target_file)
-                print(f"Copied {file_path} to {target_file}")
+                # print(f"Copied {file_path} to {target_file}")
 
 def split_data(base, target, valid_list, test_list):
     with open(valid_list, "r") as f:
@@ -291,7 +291,7 @@ def split_data(base, target, valid_list, test_list):
                 target_dir = trg_base_dirs[0]
             target_path = os.path.join(target_dir, trg_file_name)
             shutil.copy(org_file_name, target_path)
-            print(f"Copied {org_file_name} to {target_path}")
+            # print(f"Copied {org_file_name} to {target_path}")
 
 
 def SplitDataset(loc):
