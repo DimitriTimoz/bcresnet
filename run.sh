@@ -29,11 +29,9 @@ mkdir -p "$SCRATCH_DIR"
 export DATA_DIR="$SCRATCH_DIR/data"
 mkdir -p "$DATA_DIR"
 
-# Copy existing data to scratch if available (faster training)
-if [ -d "${SLURM_SUBMIT_DIR}/data" ]; then
-  echo "[INFO] Copying existing data to scratch..."
-  cp -r "${SLURM_SUBMIT_DIR}/data" "$SCRATCH_DIR/" 2>/dev/null || true
-fi
+# Copy project files to scratch (code + existing data)
+echo "[INFO] Copying project to scratch..."
+rsync -a --exclude='slurm_logs' --exclude='slurm-*.out' --exclude='.git' "${SLURM_SUBMIT_DIR}/" "$SCRATCH_DIR/"
 
 # If you know your python, pass it: PYTHON_BIN=/path/to/python sbatch run.sh
 PYTHON_CANDIDATES=(
@@ -134,18 +132,31 @@ if [ -d "./data/speech_commands_v0.02" ]; then
 fi
 
 # Run BCResNet training with GPU 0, tau=8 (BCResNet-8), and Google Speech Commands v2
+echo "[INFO] Starting training in $(pwd)..."
 "$PYTHON_BIN" -u main.py --tau 8 --gpu 0 --ver 2 --download 2>&1 | tee -a "$LOG_DIR/job-${SLURM_JOB_ID:-local}.log"
+TRAIN_EXIT_CODE=$?
 
-# Copy trained models back to submit directory
+# Copy all results back to submit directory
 echo "[INFO] Copying results back to ${SLURM_SUBMIT_DIR}..."
-if [ -d "./data" ]; then
-  rsync -a --exclude='*.tar.gz' ./data/ "${SLURM_SUBMIT_DIR}/data/" 2>/dev/null || true
+# Copy logs
+if [ -d "$LOG_DIR" ]; then
+  mkdir -p "${SLURM_SUBMIT_DIR}/slurm_logs"
+  cp -r "$LOG_DIR"/* "${SLURM_SUBMIT_DIR}/slurm_logs/" 2>/dev/null || true
 fi
-if [ -n "$(find . -maxdepth 1 -name '*.pth' -o -name '*.pt' 2>/dev/null)" ]; then
-  cp -v ./*.pth ./*.pt "${SLURM_SUBMIT_DIR}/" 2>/dev/null || true
+# Copy data and any model files in scratch
+find "$SCRATCH_DIR" -maxdepth 1 \( -name '*.pth' -o -name '*.pt' -o -name '*.pkl' \) -exec cp {} "${SLURM_SUBMIT_DIR}/" \; 2>/dev/null || true
+if [ -d "$SCRATCH_DIR/data" ]; then
+  mkdir -p "${SLURM_SUBMIT_DIR}/data"
+  rsync -a --exclude='*.tar.gz' "$SCRATCH_DIR/data/" "${SLURM_SUBMIT_DIR}/data/" 2>/dev/null || true
 fi
+
+echo "[INFO] Results saved to:"
+echo "  Logs: ${SLURM_SUBMIT_DIR}/slurm_logs/job-${SLURM_JOB_ID:-local}.log"
+echo "  Data: ${SLURM_SUBMIT_DIR}/data/"
 
 # Cleanup scratch
 echo "[INFO] Cleaning up scratch directory..."
 rm -rf "$SCRATCH_DIR"
+
+exit $TRAIN_EXIT_CODE
 
