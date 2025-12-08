@@ -96,11 +96,20 @@ fi
 
 echo "[INFO] Using python at $PYTHON_BIN"
 
-# Clean corrupted dataset directories if they exist but are incomplete
+# Clean corrupted or incomplete dataset directories
 if [ -d "./data/speech_commands_v0.02" ]; then
-  if [ ! -d "./data/speech_commands_v0.02/train_12class" ] || [ -z "$(ls -A ./data/speech_commands_v0.02/train_12class 2>/dev/null)" ]; then
-    echo "[INFO] Cleaning incomplete dataset..."
+  TRAIN_12_DIR="./data/speech_commands_v0.02/train_12class"
+  # Check if train_12class exists and has at least 12 subdirectories (one per class)
+  if [ ! -d "$TRAIN_12_DIR" ] || [ "$(find "$TRAIN_12_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)" -lt 12 ]; then
+    echo "[INFO] Cleaning incomplete dataset (train_12class missing or incomplete)..."
     rm -rf ./data/speech_commands_v0.02 ./data/speech_commands_v0.02_split
+  else
+    # Check if there are actually audio files in train_12class subdirs
+    NUM_WAV=$(find "$TRAIN_12_DIR" -name "*.wav" | wc -l)
+    if [ "$NUM_WAV" -lt 100 ]; then
+      echo "[INFO] Cleaning incomplete dataset (too few audio files: $NUM_WAV)..."
+      rm -rf ./data/speech_commands_v0.02 ./data/speech_commands_v0.02_split
+    fi
   fi
 fi
 
