@@ -22,6 +22,7 @@ PYTHON_CANDIDATES=(
   "$HOME/miniconda3/envs/bcresnet/bin/python"
   "$HOME/anaconda3/envs/h2ogpt/bin/python"
   "$HOME/anaconda3/envs/bcresnet/bin/python"
+  "/usr/bin/python3"
 )
 
 # Ensure module command is available, then try loading miniconda module
