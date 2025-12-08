@@ -16,10 +16,23 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}" || exit 1
 
 # Try direct python path first (faster/robust on Juliet)
-PYTHON_BIN=${PYTHON_BIN:-"$HOME/miniconda3/envs/bcresnet/bin/python"}
-if [ -x "$PYTHON_BIN" ]; then
-	echo "[INFO] Using python at $PYTHON_BIN"
-else
+PYTHON_CANDIDATES=(
+	"${PYTHON_BIN:-}"
+	"$HOME/miniconda3/envs/bcresnet/bin/python"
+	"$HOME/miniconda3/envs/h2ogpt/bin/python"
+	"$HOME/anaconda3/envs/bcresnet/bin/python"
+	"$HOME/anaconda3/envs/h2ogpt/bin/python"
+)
+
+for cand in "${PYTHON_CANDIDATES[@]}"; do
+	if [ -n "$cand" ] && [ -x "$cand" ]; then
+		PYTHON_BIN="$cand"
+		echo "[INFO] Using python at $PYTHON_BIN"
+		break
+	fi
+done
+
+if [ -z "${PYTHON_BIN:-}" ]; then
 	# Fallback to conda activation
 	if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
 		source "$HOME/miniconda3/etc/profile.d/conda.sh"
@@ -31,8 +44,8 @@ else
 		echo "[ERROR] conda not found. Set PYTHON_BIN to your env (e.g. ~/miniconda3/envs/h2ogpt/bin/python) or load the conda module." >&2
 		exit 1
 	fi
-	conda activate bcresnet || {
-		echo "[ERROR] conda env 'bcresnet' not found. Set PYTHON_BIN or create/activate the env." >&2
+	conda activate bcresnet || conda activate h2ogpt || {
+		echo "[ERROR] conda env 'bcresnet' or 'h2ogpt' not found. Set PYTHON_BIN or create/activate the env." >&2
 		exit 1
 	}
 	PYTHON_BIN="$(command -v python)"
