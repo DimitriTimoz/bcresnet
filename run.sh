@@ -44,39 +44,40 @@ done
 
 # If still empty, try to source conda then activate envs
 if [ -z "$PYTHON_BIN" ]; then
+  CONDA_FOUND=false
   if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     # shellcheck disable=SC1091
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
+    CONDA_FOUND=true
   elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
     # shellcheck disable=SC1091
     source "$HOME/anaconda3/etc/profile.d/conda.sh"
+    CONDA_FOUND=true
   elif [ -f "$HOME/.conda/etc/profile.d/conda.sh" ]; then
     # shellcheck disable=SC1091
     source "$HOME/.conda/etc/profile.d/conda.sh"
+    CONDA_FOUND=true
   elif command -v conda >/dev/null 2>&1; then
     eval "$(conda shell.bash hook)"
-  else
-    echo "[ERROR] conda not found. Fixez PYTHON_BIN (ex: ~/miniconda3/envs/h2ogpt/bin/python) ou chargez le module miniconda3." >&2
-    echo "[DEBUG] Tried candidates: ${PYTHON_CANDIDATES[*]}" >&2
-    exit 1
+    CONDA_FOUND=true
   fi
 
-  conda activate bcresnet || conda activate h2ogpt || {
-    echo "[ERROR] conda env 'bcresnet' ou 'h2ogpt' introuvable. Fixez PYTHON_BIN ou créez l'env." >&2
-    exit 1
-  }
-
-  PYTHON_BIN="$(command -v python)"
+  if [ "$CONDA_FOUND" = true ]; then
+    if conda activate bcresnet 2>/dev/null || conda activate h2ogpt 2>/dev/null; then
+      PYTHON_BIN="$(command -v python)"
+    fi
+  fi
 fi
 
+# Last-resort: build a venv with system python if still empty
 if [ -z "$PYTHON_BIN" ]; then
-  # Last-resort: build a venv with system python if available
   if command -v module >/dev/null 2>&1; then
     module load python/3.11.9 2>/dev/null || module load python/3.10.10 2>/dev/null || true
   fi
   BASE_PY="$(command -v python3 || true)"
   if [ -z "$BASE_PY" ]; then
-    echo "[ERROR] Aucun python3 trouvé. Fixez PYTHON_BIN." >&2
+    echo "[ERROR] Aucun python3 trouvé. Fixez PYTHON_BIN (ex: ~/miniconda3/envs/h2ogpt/bin/python)." >&2
+    echo "[DEBUG] Tried candidates: ${PYTHON_CANDIDATES[*]}" >&2
     exit 1
   fi
   VENV_DIR="${SLURM_TMPDIR:-$HOME/.cache}/bcresnet_venv"
