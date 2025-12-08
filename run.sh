@@ -96,6 +96,14 @@ fi
 
 echo "[INFO] Using python at $PYTHON_BIN"
 
+# Clean corrupted dataset directories if they exist but are incomplete
+if [ -d "./data/speech_commands_v0.02" ]; then
+  if [ ! -d "./data/speech_commands_v0.02/train_12class" ] || [ -z "$(ls -A ./data/speech_commands_v0.02/train_12class 2>/dev/null)" ]; then
+    echo "[INFO] Cleaning incomplete dataset..."
+    rm -rf ./data/speech_commands_v0.02 ./data/speech_commands_v0.02_split
+  fi
+fi
+
 # Run BCResNet training with GPU 0, tau=8 (BCResNet-8), and Google Speech Commands v2
-"$PYTHON_BIN" -u main.py --tau 8 --gpu 0 --ver 2  2>&1 | tee -a "$LOG_DIR/job-${SLURM_JOB_ID:-local}.log"
+"$PYTHON_BIN" -u main.py --tau 8 --gpu 0 --ver 2 --download 2>&1 | tee -a "$LOG_DIR/job-${SLURM_JOB_ID:-local}.log"
 
