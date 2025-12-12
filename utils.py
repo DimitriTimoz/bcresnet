@@ -16,6 +16,13 @@ import torch
 import torchaudio
 from torch.utils.data import Dataset
 
+# Force torchaudio to use soundfile backend (avoids torchcodec/FFmpeg issues)
+try:
+    torchaudio.set_audio_backend("soundfile")
+except RuntimeError:
+    # Newer torchaudio versions may not have this function
+    pass
+
 # URL for custom "donut" class (change this to your hosted URL)
 DONUT_URL = "https://dera.page/donut.zip"  # TODO: Replace with your URL
 
