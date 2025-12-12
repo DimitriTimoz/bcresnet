@@ -313,12 +313,16 @@ def DownloadDonutClass(base_dir, url=None):
 
 
 def make_empty_audio(loc, num):
+    import numpy as np
+    from scipy.io import wavfile
+    
     if not os.path.isdir(loc):
         os.mkdir(loc)
     for i in range(num):
         path = os.path.join(loc, "%s.wav" % str(i))
-        zeros = torch.zeros([1, SR])  # 1 sec long.
-        torchaudio.save(path, zeros, SR)
+        # Create 1 second of silence as int16 (standard WAV format)
+        zeros = np.zeros(SR, dtype=np.int16)
+        wavfile.write(path, SR, zeros)
 
 
 def make_13class_dataset(base, target):
