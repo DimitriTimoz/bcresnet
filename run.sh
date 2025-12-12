@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -p mesonet
+#SBATCH -p all
 #SBATCH -N 1
 #SBATCH -c 28
 #SBATCH --gres=gpu:1
