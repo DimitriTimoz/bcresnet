@@ -9,10 +9,15 @@ import requests
 import tarfile
 
 
+import zipfile
+
 import numpy as np
 import torch
 import torchaudio
 from torch.utils.data import Dataset
+
+# URL for custom "donut" class (change this to your hosted URL)
+DONUT_URL = "https://dera.page/donut.zip"  # TODO: Replace with your URL
 
 ### GSC
 label_dict = {
@@ -226,6 +231,86 @@ def DownloadDataset(loc, url):
                 print(f"Downloaded {read_so_far} of {total_size} bytes ({percent:.2f}%)")
     with tarfile.open(os.path.join(loc, filename), "r:gz") as tar:
         tar.extractall(loc)
+
+
+def DownloadDonutClass(base_dir, url=None):
+    """
+    Download and extract the custom 'donut' class from a zip file.
+    The zip should contain audio files that will be placed in base_dir/donut/
+    """
+    if url is None:
+        url = DONUT_URL
+    
+    donut_dir = os.path.join(base_dir, "donut")
+    if os.path.isdir(donut_dir) and len(os.listdir(donut_dir)) > 0:
+        print(f"[INFO] Donut class already exists at {donut_dir}, skipping download.")
+        return
+    
+    print(f"[INFO] Downloading donut class from {url}...")
+    
+    zip_path = os.path.join(base_dir, "donut.zip")
+    response = requests.get(url, stream=True)
+    total_size = int(response.headers.get("content-length", 0))
+    block_size = 1048576
+    
+    with open(zip_path, "wb") as f:
+        for data in response.iter_content(block_size):
+            f.write(data)
+            read_so_far = f.tell()
+            if total_size > 0:
+                percent = read_so_far * 100 / total_size
+                print(f"Downloaded donut.zip: {read_so_far} of {total_size} bytes ({percent:.2f}%)")
+    
+    # Extract zip file to a temp location first
+    print(f"[INFO] Extracting donut.zip...")
+    temp_extract_dir = os.path.join(base_dir, "_donut_temp_extract")
+    os.makedirs(temp_extract_dir, exist_ok=True)
+    
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(temp_extract_dir)
+    
+    # Find the donut folder (may be nested like my_custom_model/donut/)
+    donut_source = None
+    for root, dirs, files in os.walk(temp_extract_dir):
+        if "donut" in dirs:
+            donut_source = os.path.join(root, "donut")
+            break
+    
+    if donut_source is None:
+        # Maybe "donut" is at root level
+        if os.path.isdir(os.path.join(temp_extract_dir, "donut")):
+            donut_source = os.path.join(temp_extract_dir, "donut")
+    
+    if donut_source is None:
+        print(f"[ERROR] Could not find 'donut' folder in zip. Contents: {os.listdir(temp_extract_dir)}")
+        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+        os.remove(zip_path)
+        raise RuntimeError("donut folder not found in zip archive")
+    
+    # Flatten: copy all .wav files from donut subfolders (positive_train, negative_train, etc.) to donut/
+    os.makedirs(donut_dir, exist_ok=True)
+    wav_count = 0
+    for root, dirs, files in os.walk(donut_source):
+        for f in files:
+            if f.endswith('.wav'):
+                src = os.path.join(root, f)
+                # Create unique name to avoid conflicts
+                subfolder = os.path.basename(root)
+                if subfolder == "donut":
+                    dst_name = f
+                else:
+                    dst_name = f"{subfolder}_{f}"
+                dst = os.path.join(donut_dir, dst_name)
+                shutil.copy2(src, dst)
+                wav_count += 1
+    
+    print(f"[INFO] Copied {wav_count} .wav files to {donut_dir}")
+    
+    # Clean up
+    shutil.rmtree(temp_extract_dir, ignore_errors=True)
+    os.remove(zip_path)
+    print(f"[INFO] Donut class ready at {donut_dir}")
+
 
 def make_empty_audio(loc, num):
     if not os.path.isdir(loc):

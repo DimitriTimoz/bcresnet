@@ -105,7 +105,7 @@ if [ -z "$PYTHON_BIN" ]; then
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
   pip install --upgrade pip >/dev/null
-  pip install torch torchvision torchaudio tqdm requests soundfile >/dev/null
+  pip install torch torchvision torchaudio tqdm requests soundfile scikit-learn matplotlib seaborn >/dev/null
   PYTHON_BIN="$VENV_DIR/bin/python"
 fi
 
@@ -143,8 +143,8 @@ if [ -d "$LOG_DIR" ]; then
   mkdir -p "${SLURM_SUBMIT_DIR}/slurm_logs"
   cp -r "$LOG_DIR"/* "${SLURM_SUBMIT_DIR}/slurm_logs/" 2>/dev/null || true
 fi
-# Copy data and any model files in scratch
-find "$SCRATCH_DIR" -maxdepth 1 \( -name '*.pth' -o -name '*.pt' -o -name '*.pkl' \) -exec cp {} "${SLURM_SUBMIT_DIR}/" \; 2>/dev/null || true
+# Copy data and any model/result files in scratch
+find "$SCRATCH_DIR" -maxdepth 1 \( -name '*.pth' -o -name '*.pt' -o -name '*.pkl' -o -name '*.png' \) -exec cp {} "${SLURM_SUBMIT_DIR}/" \; 2>/dev/null || true
 if [ -d "$SCRATCH_DIR/data" ]; then
   mkdir -p "${SLURM_SUBMIT_DIR}/data"
   rsync -a --exclude='*.tar.gz' "$SCRATCH_DIR/data/" "${SLURM_SUBMIT_DIR}/data/" 2>/dev/null || true

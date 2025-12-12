@@ -12,9 +12,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from bcresnet import BCResNets
-from utils import DownloadDataset, Padding, Preprocess, SpeechCommand, SplitDataset
+from utils import DownloadDataset, DownloadDonutClass, Padding, Preprocess, SpeechCommand, SplitDataset
 
 
 class Trainer:
@@ -92,11 +95,25 @@ class Trainer:
                 valid_acc = self.Test(self.valid_dataset, self.valid_loader, augment=True)
                 print("valid acc: %.3f" % (valid_acc))
 
-        test_acc = self.Test(self.test_dataset, self.test_loader, augment=False)  # official testset
+        test_acc, all_preds, all_labels = self.Test(self.test_dataset, self.test_loader, augment=False, return_preds=True)  # official testset
         print("test acc: %.3f" % (test_acc))
+        
+        # Compute and display normalized confusion matrix
+        self._plot_confusion_matrix(all_labels, all_preds)
+        
+        # Save the trained model
+        model_path = "bcresnet_tau%.1f_v%d_acc%.2f.pth" % (self.tau, self.ver, test_acc)
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'tau': self.tau,
+            'ver': self.ver,
+            'test_acc': test_acc,
+        }, model_path)
+        print("Model saved to %s" % model_path)
+        
         print("End.")
 
-    def Test(self, dataset, loader, augment):
+    def Test(self, dataset, loader, augment, return_preds=False):
         """
         Tests the model on a given dataset.
 
@@ -104,12 +121,16 @@ class Trainer:
             dataset (Dataset): The dataset to test the model on.
             loader (DataLoader): The data loader to use for batching the data.
             augment (bool): Flag indicating whether to use data augmentation during testing.
+            return_preds (bool): If True, also return all predictions and labels.
 
         Returns:
             float: The accuracy of the model on the given dataset.
+            If return_preds is True, also returns (all_preds, all_labels).
         """
         true_count = 0.0
         num_testdata = float(len(dataset))
+        all_preds = []
+        all_labels = []
         for inputs, labels in loader:
             inputs = inputs.to(self.device)
             labels = labels.to(self.device)
@@ -117,8 +138,43 @@ class Trainer:
             outputs = self.model(inputs)
             prediction = torch.argmax(outputs, dim=-1)
             true_count += torch.sum(prediction == labels).detach().cpu().numpy()
+            if return_preds:
+                all_preds.extend(prediction.detach().cpu().numpy().tolist())
+                all_labels.extend(labels.detach().cpu().numpy().tolist())
         acc = true_count / num_testdata * 100.0  # percentage
+        if return_preds:
+            return acc, all_preds, all_labels
         return acc
+
+    def _plot_confusion_matrix(self, all_labels, all_preds):
+        """
+        Plots a normalized confusion matrix and saves it to a file.
+        """
+        from utils import label_dict
+        
+        # Get class names in order
+        class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
+        
+        # Compute confusion matrix
+        cm = confusion_matrix(all_labels, all_preds)
+        
+        # Normalize by row (true labels)
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        # Plot
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='Blues',
+                    xticklabels=class_names, yticklabels=class_names)
+        plt.xlabel('Predicted')
+        plt.ylabel('True')
+        plt.title('Normalized Confusion Matrix (tau=%.1f, v%d)' % (self.tau, self.ver))
+        plt.tight_layout()
+        
+        # Save figure
+        cm_path = "confusion_matrix_tau%.1f_v%d.png" % (self.tau, self.ver)
+        plt.savefig(cm_path, dpi=150)
+        print("Confusion matrix saved to %s" % cm_path)
+        plt.close()
 
     def _load_data(self):
         """
@@ -145,6 +201,8 @@ class Trainer:
             DownloadDataset(test_dir, url_test)
             os.mkdir(base_dir)
             DownloadDataset(base_dir, url)
+            # Download custom donut class
+            DownloadDonutClass(base_dir)
             SplitDataset(base_dir)
             print("Done...")
 
