@@ -341,6 +341,9 @@ def make_13class_dataset(base, target):
                 # print(f"Copied {file_path} to {target_file}")
 
 def split_data(base, target, valid_list, test_list):
+    import random
+    random.seed(42)  # For reproducibility
+    
     with open(valid_list, "r") as f:
         valid_names = [item.rstrip() for item in f.readlines()]
     with open(test_list, "r") as f:
@@ -369,7 +372,18 @@ def split_data(base, target, valid_list, test_list):
                     os.mkdir(os.path.join(item, class_name))
             org_file_name = os.path.join(root, file_name)
             trg_file_name = os.path.join(class_name, file_name)
-            if trg_file_name in valid_names:
+            
+            # Special handling for donut class: random split 80/10/10
+            if class_name == "donut":
+                r = random.random()
+                if r < 0.8:
+                    target_dir = trg_base_dirs[0]  # train
+                elif r < 0.9:
+                    target_dir = trg_base_dirs[1]  # valid
+                else:
+                    target_dir = trg_base_dirs[2]  # test
+            # Standard classes: use validation_list.txt and testing_list.txt
+            elif trg_file_name in valid_names:
                 target_dir = trg_base_dirs[1]
             elif trg_file_name in test_names:
                 target_dir = trg_base_dirs[-1]
