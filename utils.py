@@ -13,15 +13,18 @@ import zipfile
 
 import numpy as np
 import torch
-import torchaudio
-from torch.utils.data import Dataset
 
-# Force torchaudio to use soundfile backend (avoids torchcodec/FFmpeg issues)
-try:
-    torchaudio.set_audio_backend("soundfile")
-except RuntimeError:
-    # Newer torchaudio versions may not have this function
-    pass
+# Disable torchcodec backend before importing torchaudio
+os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
+import torchaudio
+# Force sox_io or soundfile backend if available
+if hasattr(torchaudio, 'set_audio_backend'):
+    try:
+        torchaudio.set_audio_backend("soundfile")
+    except RuntimeError:
+        pass
+
+from torch.utils.data import Dataset
 
 # URL for custom "donut" class (change this to your hosted URL)
 DONUT_URL = "https://dera.page/donut.zip"  # TODO: Replace with your URL
@@ -209,7 +212,7 @@ class LogMel:
 
 
 class Padding:
-    """zero pad to have 1 sec len"""
+    """zero pad to have 1 sec len, or truncate if longer"""
 
     def __init__(self):
         self.output_len = SR
@@ -217,9 +220,13 @@ class Padding:
     def __call__(self, x):
         pad_len = self.output_len - x.shape[-1]
         if pad_len > 0:
+            # Pad with zeros if shorter than 1 second
             x = torch.cat([x, torch.zeros([x.shape[0], pad_len])], dim=-1)
         elif pad_len < 0:
-            raise ValueError("no sample exceed 1sec in GSC.")
+            # Truncate to 1 second if longer (random crop for variety during training)
+            max_start = -pad_len
+            start = random.randint(0, max_start)
+            x = x[:, start:start + self.output_len]
         return x
 
 def DownloadDataset(loc, url):
