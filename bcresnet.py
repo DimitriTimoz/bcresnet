@@ -132,7 +132,7 @@ def BCBlockStage(num_layers, last_channel, cur_channel, idx, use_stride):
 
 
 class BCResNets(nn.Module):
-    def __init__(self, base_c, num_classes=12):
+    def __init__(self, base_c, num_classes=13):
         super().__init__()
         self.num_classes = num_classes
         self.n = [2, 2, 4, 4]  # identical modules repeated n times

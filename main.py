@@ -149,8 +149,8 @@ class Trainer:
             print("Done...")
 
         # Define data loaders
-        train_dir = "%s/train_12class" % base_dir
-        valid_dir = "%s/valid_12class" % base_dir
+        train_dir = "%s/train_13class" % base_dir
+        valid_dir = "%s/valid_13class" % base_dir
         noise_dir = "%s/_background_noise_" % base_dir
 
         transform = transforms.Compose([Padding()])

@@ -28,6 +28,7 @@ label_dict = {
     "stop": 9,
     "up": 10,
     "yes": 11,
+    "donut": 12
 }
 print("labels:\t", label_dict)
 sample_per_cls_v1 = [1854, 258, 257]
@@ -235,13 +236,13 @@ def make_empty_audio(loc, num):
         torchaudio.save(path, zeros, SR)
 
 
-def make_12class_dataset(base, target):
+def make_13class_dataset(base, target):
     os.mkdir(target)
     os.mkdir(target + "/_unknown_")
-    class10 = ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes"]
+    class11 = ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes", "donut"]
     for clsdir in glob(os.path.join(base, "*")):
         class_name = os.path.basename(clsdir)
-        if class_name in class10:
+        if class_name in class11:
             target_dir = os.path.join(target, class_name)
             shutil.copytree(clsdir, target_dir)
             # print(f"Copied {clsdir} to {target_dir}")
@@ -307,7 +308,7 @@ def SplitDataset(loc):
 
     sample_per_cls = sample_per_cls_v1 if "v0.01" in loc else sample_per_cls_v2
     for idx, split_name in enumerate(["train", "valid", "test"]):
-        make_12class_dataset(
-            "%s/%s" % (target_loc, split_name), "%s/%s_12class" % (loc, split_name)
+        make_13class_dataset(
+            "%s/%s" % (target_loc, split_name), "%s/%s_13class" % (loc, split_name)
         )
-        make_empty_audio("%s/%s_12class/_silence_" % (loc, split_name), sample_per_cls[idx])
+        make_empty_audio("%s/%s_13class/_silence_" % (loc, split_name), sample_per_cls[idx])
