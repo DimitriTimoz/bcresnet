@@ -94,12 +94,48 @@ class Trainer:
                 self.model.eval()
                 valid_acc = self.Test(self.valid_dataset, self.valid_loader, augment=True)
                 print("valid acc: %.3f" % (valid_acc))
+            
+            # Checkpoint every 10 epochs
+            if (epoch + 1) % 10 == 0:
+                print("\n" + "="*50)
+                print("CHECKPOINT at epoch %d" % (epoch + 1))
+                print("="*50)
+                
+                with torch.no_grad():
+                    self.model.eval()
+                    # Test on validation set with predictions for confusion matrix
+                    valid_acc_ckpt, valid_preds, valid_labels = self.Test(
+                        self.valid_dataset, self.valid_loader, augment=False, return_preds=True
+                    )
+                    print("Validation accuracy: %.3f%%" % valid_acc_ckpt)
+                    
+                    # Plot and save confusion matrix
+                    self._plot_confusion_matrix(
+                        valid_labels, valid_preds, 
+                        suffix="_epoch%d" % (epoch + 1)
+                    )
+                
+                # Save checkpoint model
+                ckpt_path = "bcresnet_tau%.1f_v%d_epoch%d_acc%.2f.pth" % (
+                    self.tau, self.ver, epoch + 1, valid_acc_ckpt
+                )
+                torch.save({
+                    'epoch': epoch + 1,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'tau': self.tau,
+                    'ver': self.ver,
+                    'valid_acc': valid_acc_ckpt,
+                    'lr': lr,
+                }, ckpt_path)
+                print("Checkpoint saved to %s" % ckpt_path)
+                print("="*50 + "\n")
 
         test_acc, all_preds, all_labels = self.Test(self.test_dataset, self.test_loader, augment=False, return_preds=True)  # official testset
         print("test acc: %.3f" % (test_acc))
         
         # Compute and display normalized confusion matrix
-        self._plot_confusion_matrix(all_labels, all_preds)
+        self._plot_confusion_matrix(all_labels, all_preds, suffix="_final")
         
         # Save the trained model
         model_path = "bcresnet_tau%.1f_v%d_acc%.2f.pth" % (self.tau, self.ver, test_acc)
@@ -146,9 +182,14 @@ class Trainer:
             return acc, all_preds, all_labels
         return acc
 
-    def _plot_confusion_matrix(self, all_labels, all_preds):
+    def _plot_confusion_matrix(self, all_labels, all_preds, suffix=""):
         """
         Plots a normalized confusion matrix and saves it to a file.
+        
+        Parameters:
+            all_labels: List of true labels.
+            all_preds: List of predicted labels.
+            suffix: Optional suffix for the filename (e.g., "_epoch10").
         """
         from utils import label_dict
         
@@ -167,11 +208,11 @@ class Trainer:
                     xticklabels=class_names, yticklabels=class_names)
         plt.xlabel('Predicted')
         plt.ylabel('True')
-        plt.title('Normalized Confusion Matrix (tau=%.1f, v%d)' % (self.tau, self.ver))
+        plt.title('Normalized Confusion Matrix (tau=%.1f, v%d%s)' % (self.tau, self.ver, suffix))
         plt.tight_layout()
         
         # Save figure
-        cm_path = "confusion_matrix_tau%.1f_v%d.png" % (self.tau, self.ver)
+        cm_path = "confusion_matrix_tau%.1f_v%d%s.png" % (self.tau, self.ver, suffix)
         plt.savefig(cm_path, dpi=150)
         print("Confusion matrix saved to %s" % cm_path)
         plt.close()
