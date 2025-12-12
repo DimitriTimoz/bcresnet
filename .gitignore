@@ -1,3 +1,8 @@
 data/
 __pycache__/
 .DS_Store
+*.part
+*.ytdl
+donut/
+bar-noises*.wav
+debug_mix.wav
