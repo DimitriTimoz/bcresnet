@@ -9,7 +9,7 @@ from glob import glob
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
@@ -17,7 +17,36 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from bcresnet import BCResNets
-from utils import DownloadDataset, DownloadDonutClass, Padding, Preprocess, SpeechCommand, SplitDataset
+from utils import DownloadDataset, DownloadDonutClass, Padding, Preprocess, SpeechCommand, SplitDataset, label_dict
+
+
+class BinaryDataset(Dataset):
+    """Wrapper dataset that converts multi-class to binary (donut=1, other=0)."""
+    
+    def __init__(self, base_dataset, donut_label=12):
+        self.base_dataset = base_dataset
+        self.donut_label = donut_label
+        
+    def __len__(self):
+        return len(self.base_dataset)
+    
+    def __getitem__(self, idx):
+        sample, label = self.base_dataset[idx]
+        # Convert to binary: donut=1, everything else=0
+        binary_label = 1 if label == self.donut_label else 0
+        return sample, binary_label
+    
+    def count_classes(self):
+        """Count samples per class for weight calculation."""
+        donut_count = 0
+        other_count = 0
+        for i in range(len(self.base_dataset)):
+            _, label = self.base_dataset[i]
+            if label == self.donut_label:
+                donut_count += 1
+            else:
+                other_count += 1
+        return other_count, donut_count  # [class 0, class 1]
 
 
 class Trainer:
@@ -36,9 +65,12 @@ class Trainer:
         )
         parser.add_argument("--gpu", default=0, help="gpu device id", type=int)
         parser.add_argument("--download", help="download data", action="store_true")
+        parser.add_argument("--binary", help="binary classification: donut vs all", action="store_true")
         args = parser.parse_args()
         self.__dict__.update(vars(args))
         self.device = torch.device("cuda:%d" % self.gpu if torch.cuda.is_available() else "cpu")
+        self.num_classes = 2 if self.binary else 13
+        self.class_weights = None  # Will be set for binary mode
         self._load_data()
         self._load_model()
 
@@ -83,7 +115,13 @@ class Trainer:
                 labels = labels.to(self.device)
                 inputs = self.preprocess_train(inputs, labels, augment=True)
                 outputs = self.model(inputs)
-                loss = F.cross_entropy(outputs, labels)
+                
+                # Use weighted loss for binary mode to handle class imbalance
+                if self.class_weights is not None:
+                    loss = F.cross_entropy(outputs, labels, weight=self.class_weights)
+                else:
+                    loss = F.cross_entropy(outputs, labels)
+                    
                 loss.backward()
                 optimizer.step()
                 self.model.zero_grad()
@@ -116,8 +154,9 @@ class Trainer:
                     )
                 
                 # Save checkpoint model
-                ckpt_path = "bcresnet_tau%.1f_v%d_epoch%d_acc%.2f.pth" % (
-                    self.tau, self.ver, epoch + 1, valid_acc_ckpt
+                mode_str = "_binary" if self.binary else ""
+                ckpt_path = "bcresnet_tau%.1f_v%d%s_epoch%d_acc%.2f.pth" % (
+                    self.tau, self.ver, mode_str, epoch + 1, valid_acc_ckpt
                 )
                 torch.save({
                     'epoch': epoch + 1,
@@ -125,6 +164,8 @@ class Trainer:
                     'optimizer_state_dict': optimizer.state_dict(),
                     'tau': self.tau,
                     'ver': self.ver,
+                    'binary': self.binary,
+                    'num_classes': self.num_classes,
                     'valid_acc': valid_acc_ckpt,
                     'lr': lr,
                 }, ckpt_path)
@@ -138,11 +179,14 @@ class Trainer:
         self._plot_confusion_matrix(all_labels, all_preds, suffix="_final")
         
         # Save the trained model
-        model_path = "bcresnet_tau%.1f_v%d_acc%.2f.pth" % (self.tau, self.ver, test_acc)
+        mode_str = "_binary" if self.binary else ""
+        model_path = "bcresnet_tau%.1f_v%d%s_acc%.2f.pth" % (self.tau, self.ver, mode_str, test_acc)
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'tau': self.tau,
             'ver': self.ver,
+            'binary': self.binary,
+            'num_classes': self.num_classes,
             'test_acc': test_acc,
         }, model_path)
         print("Model saved to %s" % model_path)
@@ -191,10 +235,11 @@ class Trainer:
             all_preds: List of predicted labels.
             suffix: Optional suffix for the filename (e.g., "_epoch10").
         """
-        from utils import label_dict
-        
-        # Get class names in order
-        class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
+        # Get class names based on mode
+        if self.binary:
+            class_names = ['other', 'donut']
+        else:
+            class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
         
         # Compute confusion matrix
         cm = confusion_matrix(all_labels, all_preds)
@@ -203,18 +248,21 @@ class Trainer:
         cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
         
         # Plot
-        plt.figure(figsize=(12, 10))
+        figsize = (8, 6) if self.binary else (12, 10)
+        plt.figure(figsize=figsize)
         sns.heatmap(cm_normalized, annot=True, fmt='.2f', cmap='Blues',
                     xticklabels=class_names, yticklabels=class_names)
         plt.xlabel('Predicted')
         plt.ylabel('True')
-        plt.title('Normalized Confusion Matrix (tau=%.1f, v%d%s)' % (self.tau, self.ver, suffix))
+        mode_str = "_binary" if self.binary else ""
+        plt.title('Normalized Confusion Matrix (tau=%.1f, v%d%s%s)' % (self.tau, self.ver, mode_str, suffix))
         plt.tight_layout()
         
         # Save figure
-        cm_path = "confusion_matrix_tau%.1f_v%d%s.png" % (self.tau, self.ver, suffix)
+        cm_path = "confusion_matrix_tau%.1f_v%d%s%s.png" % (self.tau, self.ver, mode_str, suffix)
         plt.savefig(cm_path, dpi=150)
         print("Confusion matrix saved to %s" % cm_path)
+        plt.close()
         plt.close()
 
     def _load_data(self):
@@ -253,13 +301,45 @@ class Trainer:
         noise_dir = "%s/_background_noise_" % base_dir
 
         transform = transforms.Compose([Padding()])
-        self.train_dataset = SpeechCommand(train_dir, self.ver, transform=transform)
+        train_dataset_base = SpeechCommand(train_dir, self.ver, transform=transform)
+        valid_dataset_base = SpeechCommand(valid_dir, self.ver, transform=transform)
+        test_dataset_base = SpeechCommand(test_dir, self.ver, transform=transform)
+        
+        # Wrap datasets for binary mode if needed
+        if self.binary:
+            print("\n" + "="*50)
+            print("BINARY MODE: donut vs all")
+            print("="*50)
+            
+            donut_label = label_dict.get('donut', 12)
+            self.train_dataset = BinaryDataset(train_dataset_base, donut_label)
+            self.valid_dataset = BinaryDataset(valid_dataset_base, donut_label)
+            self.test_dataset = BinaryDataset(test_dataset_base, donut_label)
+            
+            # Calculate class weights for imbalanced data
+            print("Counting samples per class for weight calculation...")
+            other_count, donut_count = self.train_dataset.count_classes()
+            total = other_count + donut_count
+            
+            # Inverse frequency weighting
+            weight_other = total / (2.0 * other_count)
+            weight_donut = total / (2.0 * donut_count)
+            
+            self.class_weights = torch.tensor([weight_other, weight_donut], dtype=torch.float32).to(self.device)
+            
+            print(f"  Class 0 (other): {other_count} samples, weight: {weight_other:.4f}")
+            print(f"  Class 1 (donut): {donut_count} samples, weight: {weight_donut:.4f}")
+            print(f"  Imbalance ratio: {other_count/donut_count:.1f}:1")
+            print("="*50 + "\n")
+        else:
+            self.train_dataset = train_dataset_base
+            self.valid_dataset = valid_dataset_base
+            self.test_dataset = test_dataset_base
+        
         self.train_loader = DataLoader(
             self.train_dataset, batch_size=100, shuffle=True, num_workers=0, drop_last=False
         )
-        self.valid_dataset = SpeechCommand(valid_dir, self.ver, transform=transform)
         self.valid_loader = DataLoader(self.valid_dataset, batch_size=100, num_workers=0)
-        self.test_dataset = SpeechCommand(test_dir, self.ver, transform=transform)
         self.test_loader = DataLoader(self.test_dataset, batch_size=100, num_workers=0)
 
         print(
@@ -283,8 +363,9 @@ class Trainer:
         """
         Private method that loads the model into the object.
         """
-        print("model: BC-ResNet-%.1f on data v0.0%d" % (self.tau, self.ver))
-        self.model = BCResNets(int(self.tau * 8)).to(self.device)
+        mode_str = " (BINARY: donut vs all)" if self.binary else ""
+        print("model: BC-ResNet-%.1f on data v0.0%d%s" % (self.tau, self.ver, mode_str))
+        self.model = BCResNets(int(self.tau * 8), num_classes=self.num_classes).to(self.device)
 
 
 if __name__ == "__main__":

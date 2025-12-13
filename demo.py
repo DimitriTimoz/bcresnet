@@ -65,7 +65,17 @@ def load_model(model_path, tau, device):
     inferred_base_c = cnn_head_shape // 2
     print(f"Inferred base_c={inferred_base_c} from checkpoint (cnn_head channels: {cnn_head_shape})")
     
-    model = BCResNets(base_c=inferred_base_c)
+    # Check if binary mode from checkpoint or infer from classifier shape
+    is_binary = checkpoint.get('binary', False) if isinstance(checkpoint, dict) and 'binary' in checkpoint else False
+    num_classes = checkpoint.get('num_classes', 13) if isinstance(checkpoint, dict) and 'num_classes' in checkpoint else 13
+    
+    # Also check classifier output shape
+    classifier_shape = state_dict['classifier.5.weight'].shape[0]  # Output classes
+    if classifier_shape == 2:
+        is_binary = True
+        num_classes = 2
+    
+    model = BCResNets(base_c=inferred_base_c, num_classes=num_classes)
     
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -76,13 +86,15 @@ def load_model(model_path, tau, device):
             print(f"  Valid accuracy: {checkpoint['valid_acc']:.2f}%")
         if 'tau' in checkpoint:
             print(f"  Tau: {checkpoint['tau']}")
+        if is_binary:
+            print(f"  Mode: BINARY (donut vs all)")
     else:
         model.load_state_dict(checkpoint)
         print(f"Loaded model weights from {model_path}")
     
     model.to(device)
     model.eval()
-    return model
+    return model, is_binary, num_classes
 
 
 def create_mel_transform(device):
@@ -120,8 +132,14 @@ def preprocess_audio(audio, mel_transform, device):
     return mel
 
 
-def get_prediction(model, mel, threshold=0.5):
-    """Get model prediction with confidence. Returns all probabilities."""
+def get_prediction(model, mel, threshold=0.5, idx_map=None):
+    """Get model prediction with confidence. Returns all probabilities.
+
+    idx_map: Optional dict mapping predicted index -> label name. If None,
+    falls back to global `idx_to_label` (multi-class mode).
+    """
+    if idx_map is None:
+        idx_map = idx_to_label
     with torch.no_grad():
         output = model(mel)
         probabilities = torch.softmax(output, dim=-1)
@@ -130,7 +148,7 @@ def get_prediction(model, mel, threshold=0.5):
         
         confidence = confidence.item()
         predicted_idx = predicted_idx.item()
-        predicted_label = idx_to_label[predicted_idx]
+        predicted_label = idx_map.get(predicted_idx, str(predicted_idx))
         
         # Return label (or None), confidence, and all probabilities
         if confidence >= threshold:
@@ -182,7 +200,7 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
     print(f"Using device: {device}")
     
     # Load model
-    model = load_model(model_path, tau, device)
+    model, is_binary, num_classes = load_model(model_path, tau, device)
     mel_transform = create_mel_transform(device)
     
     # Audio buffer (circular buffer of 1 second)
@@ -194,13 +212,20 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
     donut_history = deque([0.0] * history_len, maxlen=history_len)
     time_history = deque(range(-history_len, 0), maxlen=history_len)
     
-    # Get donut class index
-    donut_idx = label_dict.get('donut', 12)
+    # Get donut class index based on mode
+    if is_binary:
+        donut_idx = 1  # In binary mode: 0=other, 1=donut
+        binary_labels = {0: 'other', 1: 'donut'}
+    else:
+        donut_idx = label_dict.get('donut', 12)
     
     # Print available classes
     print(f"\n{Colors.HEADER}Detecting keywords:{Colors.ENDC}")
-    keywords = [k for k in label_dict.keys() if k not in ['_silence_', '_unknown_']]
-    print(", ".join(keywords))
+    if is_binary:
+        print("BINARY MODE: other, donut")
+    else:
+        keywords = [k for k in label_dict.keys() if k not in ['_silence_', '_unknown_']]
+        print(", ".join(keywords))
     print(f"\nConfidence threshold: {threshold*100:.0f}%")
     print(f"\n{Colors.BOLD}Listening... (Close graph window or Ctrl+C to stop){Colors.ENDC}\n")
     print("-" * 50)
@@ -208,7 +233,8 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
     # Setup matplotlib for real-time plotting
     plt.ion()  # Interactive mode
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
-    fig.suptitle('BCResNet Keyword Spotting - Real-time Demo', fontsize=14, fontweight='bold')
+    mode_title = " (BINARY)" if is_binary else ""
+    fig.suptitle(f'BCResNet Keyword Spotting - Real-time Demo{mode_title}', fontsize=14, fontweight='bold')
     
     # Donut probability line plot
     line_donut, = ax1.plot(list(time_history), list(donut_history), 'b-', linewidth=2, label='Donut probability')
@@ -223,7 +249,10 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
     ax1.fill_between(list(time_history), 0, list(donut_history), alpha=0.3)
     
     # Bar chart for all classes
-    class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
+    if is_binary:
+        class_names = ['other', 'donut']
+    else:
+        class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
     bars = ax2.bar(class_names, [0] * len(class_names), color='steelblue')
     bars[donut_idx].set_color('orange')  # Highlight donut
     ax2.set_ylim(0, 1)
@@ -265,7 +294,12 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
                 
                 # Preprocess and predict
                 mel = preprocess_audio(audio_buffer, mel_transform, device)
-                label, confidence, all_probs = get_prediction(model, mel, threshold)
+                # Build an index mapping for get_prediction
+                if is_binary:
+                    idx_map = {0: 'other', 1: 'donut'}
+                else:
+                    idx_map = idx_to_label
+                label, confidence, all_probs = get_prediction(model, mel, threshold, idx_map=idx_map)
                 
                 # Update donut history
                 donut_prob = all_probs[donut_idx]
