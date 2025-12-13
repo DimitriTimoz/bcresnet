@@ -243,7 +243,7 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
     ax1.set_xlim(-history_len, 0)
     ax1.set_ylabel('Probability')
     ax1.set_xlabel('Time (samples)')
-    ax1.set_title('🍩 Donut Detection Probability')
+    ax1.set_title('Donut Detection Probability')
     ax1.legend(loc='upper left')
     ax1.grid(True, alpha=0.3)
     ax1.fill_between(list(time_history), 0, list(donut_history), alpha=0.3)
@@ -312,7 +312,8 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
                     line_donut.set_ydata(list(donut_history))
                     
                     # Update fill
-                    ax1.collections.clear()
+                    for c in list(ax1.collections):
+                        c.remove()
                     ax1.fill_between(list(time_history), 0, list(donut_history), alpha=0.3, color='blue')
                     ax1.axhline(y=threshold, color='r', linestyle='--', alpha=0.7)
                     
@@ -323,7 +324,7 @@ def run_demo(model_path, tau, threshold, device_id, show_all):
                     # Update detection text
                     if label is not None:
                         if label == 'donut':
-                            detection_text.set_text(f'🍩 DONUT! ({confidence:.0%})')
+                            detection_text.set_text(f'DONUT! ({confidence:.0%})')
                             detection_text.set_color('darkorange')
                         else:
                             detection_text.set_text(f'Detected: {label} ({confidence:.0%})')
