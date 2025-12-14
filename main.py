@@ -235,17 +235,25 @@ class Trainer:
             all_preds: List of predicted labels.
             suffix: Optional suffix for the filename (e.g., "_epoch10").
         """
-        # Get class names based on mode
+        # Get class names + fixed label order (so missing classes still appear)
         if self.binary:
-            class_names = ['other', 'donut']
+            class_names = ["other", "donut"]
         else:
             class_names = [name for name, idx in sorted(label_dict.items(), key=lambda x: x[1])]
-        
-        # Compute confusion matrix
-        cm = confusion_matrix(all_labels, all_preds)
-        
-        # Normalize by row (true labels)
-        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+
+        labels = list(range(self.num_classes))
+
+        # Compute confusion matrix with fixed labels (prevents "missing class" shrinking)
+        cm = confusion_matrix(all_labels, all_preds, labels=labels)
+
+        # Normalize by row (true labels) safely (handles rows with 0 samples)
+        row_sums = cm.sum(axis=1, keepdims=True)
+        cm_normalized = np.divide(
+            cm.astype(float),
+            row_sums,
+            out=np.zeros_like(cm, dtype=float),
+            where=row_sums != 0,
+        )
         
         # Plot
         figsize = (8, 6) if self.binary else (12, 10)
@@ -262,7 +270,6 @@ class Trainer:
         cm_path = "confusion_matrix_tau%.1f_v%d%s%s.png" % (self.tau, self.ver, mode_str, suffix)
         plt.savefig(cm_path, dpi=150)
         print("Confusion matrix saved to %s" % cm_path)
-        plt.close()
         plt.close()
 
     def _load_data(self):
@@ -281,13 +288,13 @@ class Trainer:
             base_dir = base_dir.replace("v0.01", "v0.02")
             url = url.replace("v0.01", "v0.02")
             url_test = url_test.replace("v0.01", "v0.02")
-        test_dir = base_dir.replace("commands", "commands_test_set")
+        official_test_dir = base_dir.replace("commands", "commands_test_set")
         if self.download:
             old_dirs = glob(base_dir.replace("commands_", "commands_*"))
             for old_dir in old_dirs:
                 shutil.rmtree(old_dir)
-            os.mkdir(test_dir)
-            DownloadDataset(test_dir, url_test)
+            os.mkdir(official_test_dir)
+            DownloadDataset(official_test_dir, url_test)
             os.mkdir(base_dir)
             DownloadDataset(base_dir, url)
             # Download custom donut class
@@ -298,6 +305,8 @@ class Trainer:
         # Define data loaders
         train_dir = "%s/train_13class" % base_dir
         valid_dir = "%s/valid_13class" % base_dir
+        # IMPORTANT: use the split test set so that custom class (donut) is present in test
+        test_dir = "%s/test_13class" % base_dir
         noise_dir = "%s/_background_noise_" % base_dir
 
         transform = transforms.Compose([Padding()])
